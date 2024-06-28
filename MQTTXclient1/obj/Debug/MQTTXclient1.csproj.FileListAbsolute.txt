@@ -1,0 +1,8 @@
+C:\Users\mark.reznik\Documents\Visual Studio 2012\Projects\MQTTXclient1\MQTTXclient1\bin\Debug\MQTTXclient1.exe.config
+C:\Users\mark.reznik\Documents\Visual Studio 2012\Projects\MQTTXclient1\MQTTXclient1\bin\Debug\MQTTXclient1.exe
+C:\Users\mark.reznik\Documents\Visual Studio 2012\Projects\MQTTXclient1\MQTTXclient1\bin\Debug\MQTTXclient1.pdb
+C:\Users\mark.reznik\Documents\Visual Studio 2012\Projects\MQTTXclient1\MQTTXclient1\bin\Debug\M2Mqtt.Net.dll
+C:\Users\mark.reznik\Documents\Visual Studio 2012\Projects\MQTTXclient1\MQTTXclient1\bin\Debug\M2Mqtt.Net.pdb
+C:\Users\mark.reznik\Documents\Visual Studio 2012\Projects\MQTTXclient1\MQTTXclient1\obj\Debug\MQTTXclient1.csprojResolveAssemblyReference.cache
+C:\Users\mark.reznik\Documents\Visual Studio 2012\Projects\MQTTXclient1\MQTTXclient1\obj\Debug\MQTTXclient1.exe
+C:\Users\mark.reznik\Documents\Visual Studio 2012\Projects\MQTTXclient1\MQTTXclient1\obj\Debug\MQTTXclient1.pdb
