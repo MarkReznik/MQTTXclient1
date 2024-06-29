@@ -1,4 +1,8 @@
 ﻿using System;
+using System.Diagnostics;
+using System.IO;
+using System.Text;
+using System.Timers;
 using uPLibrary.Networking.M2Mqtt;
 using uPLibrary.Networking.M2Mqtt.Messages;
 
@@ -8,16 +12,36 @@ namespace csharpMQTT
     {
         static MqttClient ConnectMQTT(string broker, int port, string clientId, string username, string password)
         {
-            MqttClient client = new MqttClient(broker, port, true, MqttSslProtocols.TLSv1_2, null, null);
-            client.Connect(clientId, username, password);
-            if (client.IsConnected)
+            MqttClient client;
+            
+            if (username==String.Empty)
             {
-                Console.WriteLine("Connected to MQTT Broker");
+                client = new MqttClient(broker);//, port, false, MqttSslProtocols.None, null, null);
+                client.Connect(clientId);//, username, password);
             }
             else
             {
-                Console.WriteLine("Failed to connect");
+                client = new MqttClient(broker, port, true, MqttSslProtocols.TLSv1_2, null, null);
+                client.Connect(clientId, username, password);
             }
+            //client = null;
+            try
+            {
+                if (client.IsConnected)
+                {
+                    Console.WriteLine("Connected to MQTT Broker");
+                }
+                else
+                {
+                    Console.WriteLine("Failed to connect");
+                }
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine("Failed to connect: exception - "+ex.Message);
+                //throw;
+            }
+            
             return client;
         }
 
@@ -44,7 +68,7 @@ namespace csharpMQTT
             }
         }
 
-        static void PublishMsg(MqttClient client, string topic, string msg, byte qostype, bool retain)
+        static void PublishMsg(MqttClient client, string topic, string msg, byte qostype, bool retain, byte[] bytes=null)
         {
             //int msg_count = 0;
             //while (true)
@@ -52,23 +76,45 @@ namespace csharpMQTT
             {
                 return;
             }
+            int sentcnt = 0;
+            while (sentcnt<4)
             {
-                System.Threading.Thread.Sleep(1 * 500);
+                //System.Threading.Thread.Sleep(1 * 500);
                 //string msg = "messages: " + msg_count.ToString();
+                byte[] bytesmsg;
+                if (bytes != null)
+                {
+                    bytesmsg = bytes;
+                }
+                else
+                {
+                    bytesmsg = System.Text.Encoding.UTF8.GetBytes(msg);
+                } 
+                
                 try
                 {
-                    client.Publish(topic, System.Text.Encoding.UTF8.GetBytes(msg), qostype, retain);
-                    Console.WriteLine("Send `{0}` to topic `{1}` QoS={2} Retain={3}", msg, topic, qostype, retain);
+                    client.Publish(topic, bytesmsg, qostype, retain);
+                    if (bytes != null)
+                    {
+                        Console.WriteLine("Send `{0}` to topic `{1}` QoS={2} Retain={3} Retry={4}", bytesmsg, topic, qostype, retain, sentcnt);
+                    }
+                    else
+                    {
+                        Console.WriteLine("Send `{0}` to topic `{1}` QoS={2} Retain={3} Retry={4}", msg, topic, qostype, retain, sentcnt);
+                    }
+                    break;
                 }
                 catch (Exception ex)
                 {
                     Console.WriteLine("exception:" + ex.Message);
+                    sentcnt++;
+                    System.Threading.Thread.Sleep(500);
                     //throw;
                 }   
                 //msg_count++;
             }
         }
-
+        
         static void Subscribe(MqttClient client, string topic)
         {
             client.MqttMsgPublishReceived += client_MqttMsgPublishReceived;
@@ -78,7 +124,71 @@ namespace csharpMQTT
         static void client_MqttMsgPublishReceived(object sender, MqttMsgPublishEventArgs e)
         {
             sendGOT = true;
+            Console.WriteLine("DupFlag {0}", e.DupFlag);
             string payload = System.Text.Encoding.Default.GetString(e.Message);
+            if (e.Topic.ToLower() == (topic_base+topic_connected))
+            {
+                if ((payload.ToLower() == "?")||(payload.ToLower() == "help"))
+                {
+                    Console.WriteLine("Received `{0}` from `{1}` topic", payload, e.Topic.ToString());
+                    PublishMsg(client, e.Topic, topic_base + topic_connected + topic_deviceid, 2, false);
+                }      
+            }
+            else if (e.Topic.ToLower() == (topic_base + topic_connected + topic_deviceid))
+            {
+                if ((payload.ToLower() == "?") || (payload.ToLower() == "help"))
+                {
+                    Console.WriteLine("Received `{0}` from `{1}` topic", payload, e.Topic.ToString());
+                    PublishMsg(client, e.Topic, topic_com1, 2, false);
+                    PublishMsg(client, e.Topic, topic_cmd, 2, false);
+                    PublishMsg(client, e.Topic, topic_counter, 2, false);
+                }
+            }
+            else if (e.Topic.ToLower() == (topic_base + topic_connected + topic_deviceid + topic_cmd))
+            {
+                if ((payload.ToLower() == "?") || (payload.ToLower() == "help"))
+                {
+                    Console.WriteLine("Received `{0}` from `{1}` topic", payload, e.Topic.ToString());
+                    PublishMsg(client, e.Topic, topic_cmd + topic_rx, 2, false);
+                    PublishMsg(client, e.Topic, topic_cmd + topic_rx + topic_tx, 2, false);
+                }
+            }
+            else if (e.Topic.ToLower() == (topic_base + topic_connected + topic_deviceid + topic_cmd + topic_rx))
+            {
+                int cmdwaitms = 20000;
+                if (payload.ToLower().Contains(" waitms ")){
+                    
+                    if(int.TryParse(payload.ToLower().Substring(payload.ToLower().IndexOf(" waitms ") + " waitms ".Length), out cmdwaitms)==false)
+                    {
+                        cmdwaitms = 20000;
+                    }
+                    payload = payload.ToLower().Substring(0, (payload.ToLower().IndexOf(" waitms ")));
+                }
+                string cmdstr = RunCmd("cmd.exe","/c "+payload, cmdwaitms);
+                //if ((payload.ToLower() == "?") || (payload.ToLower() == "help"))
+                {
+                    Console.WriteLine("Received `{0}` from `{1}` topic", payload, e.Topic.ToString() + topic_tx);
+                    PublishMsg(client, e.Topic + topic_tx, cmdstr, 2, false);
+                }
+            }
+            else if (e.Topic.ToLower() == (topic_base + topic_connected + topic_deviceid + topic_com1))
+            {
+                if ((payload.ToLower() == "?") || (payload.ToLower() == "help"))
+                {
+                    Console.WriteLine("Received `{0}` from `{1}` topic", payload, e.Topic.ToString());
+                    PublishMsg(client, e.Topic, topic_com1 + topic_rx, 2, false);
+                    PublishMsg(client, e.Topic, topic_com1 + topic_rx + topic_tx, 2, false);
+                }
+            }
+            else if (e.Topic.ToLower() == (topic_base + topic_connected + topic_deviceid + topic_com1 + topic_rx))
+            {
+                //if ((payload.ToLower() == "?") || (payload.ToLower() == "help"))
+                {
+                    Console.WriteLine("Received `{0}` from `{1}` topic {2} retain", payload, e.Topic.ToString(), e.Retain);
+                    //PublishMsg(client, e.Topic, topic_com1 + topic_rx, 2, false);
+                    PublishMsg(client, e.Topic+topic_tx, "OK", 2, false);
+                }
+            }
             if (payload=="ON")
             {
                 Console.WriteLine("Received `{0}` from `{1}` topic", payload, e.Topic.ToString());
@@ -99,18 +209,125 @@ namespace csharpMQTT
                 PublishMsg(client, topic, "GOT", 2, false);
             }
         }
+        static string RunCmd(string filename,string args, int waitms) {
+            string stdout;
+            string stderr;
+            string exitcode;
+            //string retstring;
+            try
+            {
+                var p = Process.Start(
+                    new ProcessStartInfo(filename, args)
+                    {
+                        CreateNoWindow = true,
+                        UseShellExecute = false,
+                        RedirectStandardError = true, // falsetrue,
+                        RedirectStandardOutput = true,
+                        WorkingDirectory = Environment.CurrentDirectory
+                    }
+                );
+                int waitseccounter = waitms/1000;
+                bool waitdone = false;
+                if (waitseccounter==0)
+                {
+                    waitdone = p.WaitForExit(waitms);//wait < 1sec
+                }
+                while (waitseccounter > 0 )
+                {
+                    waitdone=p.WaitForExit(1000);//wait 1 sec
+                    if( waitdone ) 
+                    { 
+                        break; 
+                    }
+                    waitseccounter--;
+                }
+
+                //if (!p.StandardOutput.EndOfStream)
+                if (!waitdone)
+                {
+                    //p.CancelOutputRead();//Async
+                    //p.CancelErrorRead();//Async
+                    p.Close();
+                    stdout = "";
+                    stderr = "Wait Timeout "+waitms.ToString()+"ms";
+                    exitcode = "-1";
+                }
+                else
+                {
+                    stdout = p.StandardOutput.ReadToEnd().TrimEnd();
+                    stderr = p.StandardError.ReadToEnd().TrimEnd();
+                    exitcode = p.ExitCode.ToString();
+                }
+
+                if (stderr.Length != 0)
+                {
+                    Console.WriteLine($"error: {stderr}");
+                    //retstring = stderr;
+                }
+                else
+                {
+                    Console.WriteLine($"stdout: {stdout}");
+                    //retstring = stdout;
+                }
+            }
+            catch (Exception e)
+            {
+                Console.WriteLine("cmd error: "+e.Message);
+                stdout = "";
+                stderr = e.Message;
+                exitcode = "-1";
+                //throw;
+            }
+            return "Run: "+filename+" "+args+"\r\nStdOutput: "+ stdout+"\r\nStdError: "+ stderr + "\r\nExitCode: " + exitcode;
+
+        }
+        private static void OnTimedEvent(object source, ElapsedEventArgs e)
+        {
+            PublishMsg(client, topic_base + topic_connected + topic_deviceid + topic_counter, onesec_counter.ToString(), 2, true);
+            onesec_counter++;
+        }
+
+        private static void SendBinFile()
+        {
+            string myString;
+            using (FileStream fs = new FileStream("C:\\Temp\\readtest.exe", FileMode.Open))
+            using (BinaryReader br = new BinaryReader(fs))
+            {
+                byte[] bin = br.ReadBytes(Convert.ToInt32(fs.Length));
+                //prepare subscribe to my "pc-win10" connected id
+                //Subscribe(client, topic_base + topic_connected + topic_deviceid + topic_com1 + topic_rx);
+                System.Threading.Thread.Sleep(1000);
+                PublishMsg(client, topic_base + topic_connected + topic_deviceid + topic_com1+topic_rx, "" , 2, false, bin);
+                //myString = Convert.ToBase64String(bin);
+
+            }
+        }
+
+        static int onesec_counter = 0;
         static bool sendGOT = false;
-        static string broker = "f16e3b17.ala.asia-southeast1.emqxsl.com";//"broker.emqx.io";
+        static string broker = "f16e3b17.ala.asia-southeast1.emqxsl.com";
+        static string brokerpub = "broker.emqx.io";
         static int port = 8883;
+        static int portpub = 1883;
         static string topic = "testtopic1/1";// "Csharp/mqtt";
         static string clientId = Guid.NewGuid().ToString();
         static string username = "mark";//"emqx";
         static string password = "123456";//"public";
+
+        static string topic_base        = "972526435150/root";
+        static string topic_connected   = "/connected";
+        static string topic_deviceid    = "/pc-win10";
+        static string topic_rx          = "/rx";
+        static string topic_tx          = "/tx";
+        static string topic_com1        = "/com1";
+        static string topic_cmd         = "/cmd";
+        static string topic_counter     = "/counter";
+
         static MqttClient client;
         static void Main(string[] args)
         {
-            
-            client = ConnectMQTT(broker, port, clientId, username, password);
+            //string cmdstring;
+            //cmdstring = RunCmd("cmd.exe","/c ver",1000);
             // Register to events
             //client.Settings += MqttConnectionOpened;
             //Subscribe(client, topic);
@@ -123,8 +340,40 @@ namespace csharpMQTT
             byte qostype = 2;
             bool retain = false;
             string SorP = "P";
+            readkeys = "P";
+            /*
+            Console.WriteLine("Input EMQX Broker type. D-Deploiment1 P-public: (default: P)");
+            readkeys = Console.ReadLine();
+            */
+            if (readkeys == "D")
+            {
+                client = ConnectMQTT(broker, port, clientId, username, password);
+            }
+            else
+            {
+                client = ConnectMQTT(brokerpub, portpub, clientId,"","");
+            }
+            if (client==null) { return; }
 
-            
+            PublishMsg(client, topic_base + topic_connected + topic_deviceid + topic_com1 + topic_rx, "", qostype, true);
+            System.Threading.Thread.Sleep(1 * 500);
+
+            var aTimer = new System.Timers.Timer(60000);
+            aTimer.Elapsed += new ElapsedEventHandler(OnTimedEvent);
+            //aTimer.Interval = 10000;
+            aTimer.Enabled = true;
+
+            //if your code is not registers timer globally then uncomment following code
+
+            //GC.KeepAlive(aTimer);
+
+            //prepare subscribe to my "pc-win10" connected id
+            Subscribe(client, topic_base+topic_connected+"/#");
+            //PublishMsg(client, topic, msg, qostype, retain);
+            //
+            //PublishMsg(client, topic_base + topic_connected + topic_deviceid + topic_com1 + topic_rx, "", qostype, true);
+            SendBinFile();
+
             while (true)
             {
                 System.Threading.Thread.Sleep(1 * 500);
