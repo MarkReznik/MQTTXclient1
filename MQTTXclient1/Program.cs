@@ -108,7 +108,7 @@ namespace csharpMQTT
                 {
                     Console.WriteLine("exception:" + ex.Message);
                     sentcnt++;
-                    System.Threading.Thread.Sleep(500);
+                    System.Threading.Thread.Sleep(100);
                     //throw;
                 }   
                 //msg_count++;
@@ -187,6 +187,16 @@ namespace csharpMQTT
                     Console.WriteLine("Received `{0}` from `{1}` topic {2} retain", payload, e.Topic.ToString(), e.Retain);
                     //PublishMsg(client, e.Topic, topic_com1 + topic_rx, 2, false);
                     PublishMsg(client, e.Topic+topic_tx, "OK", 2, false);
+                }
+            }
+            else if (e.Topic.ToLower() == (topic_base + topic_connected + topic_deviceid + topic_com1 + topic_rx + topic_tx))
+            {
+                if ((payload.ToLower() == "ok"))// || (payload.ToLower() == "help"))
+                {
+                    Console.WriteLine("Received `{0}` from `{1}` topic {2} retain", payload, e.Topic.ToString(), e.Retain);
+                    //PublishMsg(client, e.Topic, topic_com1 + topic_rx, 2, false);
+                    //PublishMsg(client, e.Topic + topic_tx, "OK", 2, false);
+                    waitOK = false;
                 }
             }
             if (payload=="ON")
@@ -289,20 +299,65 @@ namespace csharpMQTT
 
         private static void SendBinFile()
         {
-            string myString;
+            //string myString;
             using (FileStream fs = new FileStream("C:\\Temp\\readtest.exe", FileMode.Open))
             using (BinaryReader br = new BinaryReader(fs))
             {
                 byte[] bin = br.ReadBytes(Convert.ToInt32(fs.Length));
                 //prepare subscribe to my "pc-win10" connected id
                 //Subscribe(client, topic_base + topic_connected + topic_deviceid + topic_com1 + topic_rx);
-                System.Threading.Thread.Sleep(1000);
-                PublishMsg(client, topic_base + topic_connected + topic_deviceid + topic_com1+topic_rx, "" , 2, false, bin);
-                //myString = Convert.ToBase64String(bin);
-
+                int sendlength = bin.Length;
+                int sendindex = 0;
+                byte sendline = 0;
+                int sendbuffsize = 0x7FF;
+                bool lastline = false;
+                int retry = 0;
+                while (sendindex < sendlength)
+                {
+                    if (lastline == true)
+                    {
+                        break;
+                    }
+                    //System.Threading.Thread.Sleep(1000);
+                    if ((sendlength - sendindex) <= sendbuffsize)
+                    {
+                        sendbuffsize = (sendlength - sendindex);
+                        lastline = true;
+                    }
+                    byte[] datapart = new byte[sendbuffsize+1];
+                    Array.Copy(bin, sendindex, datapart, 1, sendbuffsize);
+                    datapart[0] = sendline;
+                    waitOK = true;
+                    PublishMsg(client, topic_base + topic_connected + topic_deviceid + topic_com1 + topic_rx, "", 2, false, datapart);
+                    int waitokms = 0;
+                    while (waitOK)
+                    {
+                        System.Threading.Thread.Sleep(1);
+                        waitokms++;
+                        if (waitokms>500)
+                        {
+                            break; 
+                        }
+                    }
+                    if (waitOK)
+                    {
+                        retry++;
+                        if (retry > 3)
+                        {
+                            Console.WriteLine("Failed send/receive file");
+                            break;
+                        }
+                        continue;
+                    }
+                    sendindex += sendbuffsize;
+                    sendline++;
+                    retry = 0;
+                    //myString = Convert.ToBase64String(bin);
+                }
             }
         }
 
+        static bool waitOK = false;
         static int onesec_counter = 0;
         static bool sendGOT = false;
         static string broker = "f16e3b17.ala.asia-southeast1.emqxsl.com";
