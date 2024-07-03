@@ -1,7 +1,11 @@
 ﻿using System;
+using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
+using System.Net;
+//using System.Net.Http;
 using System.Text;
+using System.Threading.Tasks;
 using System.Timers;
 using uPLibrary.Networking.M2Mqtt;
 using uPLibrary.Networking.M2Mqtt.Messages;
@@ -189,6 +193,15 @@ namespace csharpMQTT
                     PublishMsg(client, e.Topic+topic_tx, "OK", 2, false);
                 }
             }
+            else if (e.Topic.ToLower().Contains(topic_base + topic_connected + topic_deviceid + topic_com1 + topic_rx + "/"))
+            {
+                //if ((payload.ToLower() == "?") || (payload.ToLower() == "help"))
+                {
+                    Console.WriteLine("Received  from `{1}` topic {2} retain", payload, e.Topic.ToString(), e.Retain);
+                    //PublishMsg(client, e.Topic, topic_com1 + topic_rx, 2, false);
+                    //PublishMsg(client, e.Topic + topic_tx, "OK", 2, false);
+                }
+            }
             else if (e.Topic.ToLower() == (topic_base + topic_connected + topic_deviceid + topic_com1 + topic_rx + topic_tx))
             {
                 if ((payload.ToLower() == "ok"))// || (payload.ToLower() == "help"))
@@ -271,12 +284,12 @@ namespace csharpMQTT
 
                 if (stderr.Length != 0)
                 {
-                    Console.WriteLine($"error: {stderr}");
+                    Console.WriteLine(String.Format("error: {stderr}"));
                     //retstring = stderr;
                 }
                 else
                 {
-                    Console.WriteLine($"stdout: {stdout}");
+                    Console.WriteLine(String.Format("stdout: {stdout}"));
                     //retstring = stdout;
                 }
             }
@@ -300,7 +313,7 @@ namespace csharpMQTT
         private static void SendBinFile()
         {
             //string myString;
-            using (FileStream fs = new FileStream("C:\\Temp\\readtest.exe", FileMode.Open))
+            using (FileStream fs = new FileStream("C:\\Temp\\readtest.fw", FileMode.Open))
             using (BinaryReader br = new BinaryReader(fs))
             {
                 byte[] bin = br.ReadBytes(Convert.ToInt32(fs.Length));
@@ -308,8 +321,8 @@ namespace csharpMQTT
                 //Subscribe(client, topic_base + topic_connected + topic_deviceid + topic_com1 + topic_rx);
                 int sendlength = bin.Length;
                 int sendindex = 0;
-                byte sendline = 0;
-                int sendbuffsize = 0x7FF;
+                int sendline = 0;
+                int sendbuffsize = 0x7F;// 0x7FF;
                 bool lastline = false;
                 int retry = 0;
                 while (sendindex < sendlength)
@@ -318,7 +331,7 @@ namespace csharpMQTT
                     {
                         break;
                     }
-                    //System.Threading.Thread.Sleep(1000);
+                    System.Threading.Thread.Sleep(250);
                     if ((sendlength - sendindex) <= sendbuffsize)
                     {
                         sendbuffsize = (sendlength - sendindex);
@@ -326,9 +339,12 @@ namespace csharpMQTT
                     }
                     byte[] datapart = new byte[sendbuffsize+1];
                     Array.Copy(bin, sendindex, datapart, 1, sendbuffsize);
-                    datapart[0] = sendline;
+                    //datapart[0] = sendline;
                     waitOK = true;
-                    PublishMsg(client, topic_base + topic_connected + topic_deviceid + topic_com1 + topic_rx, "", 2, false, datapart);
+                    //PublishMsg(client, topic_base + topic_connected + topic_deviceid + topic_com1 + topic_rx, "", 2, false, datapart);
+                    PublishMsg(client, topic_base + topic_connected + topic_deviceid + topic_com1 + topic_rx + "/" + sendline, "", 2, false, datapart);
+                    //break;
+                    /*
                     int waitokms = 0;
                     while (waitOK)
                     {
@@ -349,11 +365,88 @@ namespace csharpMQTT
                         }
                         continue;
                     }
+                    */
                     sendindex += sendbuffsize;
                     sendline++;
                     retry = 0;
                     //myString = Convert.ToBase64String(bin);
                 }
+            }
+        }
+
+        //Download File From FTP Server 
+        //Base url of FTP Server
+        //if file is in root then write FileName Only if is in use like "subdir1/subdir2/filename.ext"
+        //Username of FTP Server
+        //Password of FTP Server
+        //Folderpath where you want to Download the File
+        // Status String from Server
+        public static string DownloadFile(string FtpUrl, string FileNameToDownload,
+                            string userName, string password, string tempDirPath)
+        {
+            string ResponseDescription = "";
+            string PureFileName = new FileInfo(FileNameToDownload).Name;
+            string DownloadedFilePath = tempDirPath + "/" + PureFileName;
+            string downloadUrl = String.Format("{0}/{1}", FtpUrl, FileNameToDownload);
+            FtpWebRequest req = (FtpWebRequest)FtpWebRequest.Create(downloadUrl);
+            req.Method = WebRequestMethods.Ftp.DownloadFile;
+            req.Credentials = new NetworkCredential(userName, password);
+            req.UseBinary = true;
+            //req.Proxy = null;
+            req.KeepAlive = true;
+            req.UsePassive = false;
+            try
+            {
+                FtpWebResponse response = (FtpWebResponse)req.GetResponse();
+                Stream stream = response.GetResponseStream();
+                byte[] buffer = new byte[2048];
+                FileStream fs = new FileStream(DownloadedFilePath, FileMode.Create);
+                int ReadCount = stream.Read(buffer, 0, buffer.Length);
+                while (ReadCount > 0)
+                {
+                    fs.Write(buffer, 0, ReadCount);
+                    ReadCount = stream.Read(buffer, 0, buffer.Length);
+                }
+                ResponseDescription = response.StatusDescription;
+                fs.Close();
+                stream.Close();
+            }
+            catch (Exception e)
+            {
+                Console.WriteLine(e.Message);
+            }
+            return ResponseDescription;
+        }
+
+        private static async Task DownloadFileAsync()
+        {
+            //WebClient client = new WebClient();
+            //await client.DownloadFileTaskAsync(new Uri("https://972526435150.ucoz.org/files/readtest.fw"), "c:/temp/mytxtFile.txt");
+            using (WebClient client = new WebClient()) {
+                Uri ur = new Uri("https://972526435150.ucoz.org/files/stx_support.xex");
+
+                //client.Credentials = new NetworkCredential("username", "password");
+                //String credentials = Convert.ToBase64String(Encoding.ASCII.GetBytes("Username" + ":" + "MyNewPassword"));
+                //client.Headers[HttpRequestHeader.Authorization] = $"Basic {credentials}";
+
+                client.DownloadProgressChanged += (o, e) =>
+                {
+                    Console.WriteLine(String.Format("Download status: {0}%.", e.ProgressPercentage));
+
+                    // updating the UI
+                    /*
+                    Dispatcher.Invoke(() => {
+                        progressBar.Value = e.ProgressPercentage;
+                    });
+                    */
+                };
+
+                client.DownloadFileCompleted += (o, e) => 
+                {
+                    Console.WriteLine("Download finished!");
+                };
+
+                client.DownloadFileAsync(ur, @"C:\temp\newfile.exe");
             }
         }
 
@@ -381,6 +474,15 @@ namespace csharpMQTT
         static MqttClient client;
         static void Main(string[] args)
         {
+            string host = "ftp://972526435150.ucoz.org";
+            string UserId = "f972526435150";
+            string Password = "123456";
+            //DownloadFileAsync();//.GetAwaiter();
+            //while (true)
+            {
+                System.Threading.Thread.Sleep(1 * 500);
+            }
+            //string ftpresp = DownloadFile(host, "files/sendtest.exe", UserId, Password, "c:/temp");
             //string cmdstring;
             //cmdstring = RunCmd("cmd.exe","/c ver",1000);
             // Register to events
